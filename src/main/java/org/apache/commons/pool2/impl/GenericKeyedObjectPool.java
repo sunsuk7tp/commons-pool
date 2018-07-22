@@ -996,6 +996,9 @@ public class GenericKeyedObjectPool<K, T> extends BaseGenericObjectPool<T>
             }
         }
 
+        long localStartTimeMillis = System.currentTimeMillis();
+        long localMaxWaitTimeMillis = Math.max(getMaxWaitMillis(), 0);
+
         // Flag that indicates if create should:
         // - TRUE:  call the factory to create an object
         // - FALSE: return null
@@ -1021,13 +1024,20 @@ public class GenericKeyedObjectPool<K, T> extends BaseGenericObjectPool<T>
                         // bring the pool to capacity. Those calls might also
                         // fail so wait until they complete and then re-test if
                         // the pool is at capacity or not.
-                        objectDeque.makeObjectCountLock.wait();
+                        objectDeque.makeObjectCountLock.wait(localMaxWaitTimeMillis);
                     }
                 } else {
                     // The pool is not at capacity. Create a new object.
                     objectDeque.makeObjectCount++;
                     create = Boolean.TRUE;
                 }
+            }
+
+            // Do not block more if maxWaitTimeMillis is set.
+            if (create == null &&
+                (localMaxWaitTimeMillis > 0 &&
+                 System.currentTimeMillis() - localStartTimeMillis >= localMaxWaitTimeMillis)) {
+                create = Boolean.FALSE;
             }
         }
 

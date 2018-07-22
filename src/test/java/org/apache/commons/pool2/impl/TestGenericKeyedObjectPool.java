@@ -2337,6 +2337,60 @@ public class TestGenericKeyedObjectPool extends TestKeyedObjectPool {
             return new DefaultPooledObject<>(value);
         }
     }
+
+    @Test(timeout = 1200 /* maxWaitMillis x2 + padding */)
+    public void testReturnBorrowObjectWithingMaxWaitMillis() throws Exception {
+        long maxWaitMillis = 500;
+        final String key = "key";
+
+        final GenericKeyedObjectPool<String, String> createSlowObjectFactoryPool
+                = new GenericKeyedObjectPool<>(createSlowObjectFactory(60000));
+        createSlowObjectFactoryPool.setMaxTotalPerKey(1);
+        createSlowObjectFactoryPool.setMaxWaitMillis(maxWaitMillis);
+
+        // thread1 tries creating a slow object to make pool full.
+        Thread thread1 = new Thread() {
+            @Override
+            public void run() {
+                try {
+                    String obj = createSlowObjectFactoryPool.borrowObject(key);
+                    createSlowObjectFactoryPool.returnObject(key, obj);
+                } catch (final Throwable e) {
+                    e.printStackTrace();
+                }
+            }
+        };
+        thread1.start();
+
+        // Wait for thread1's reaching to create(). 
+        Thread.sleep(100);
+
+        // another one tries borrowObject. It should return within maxWaitMillis.
+        try {
+            createSlowObjectFactoryPool.borrowObject(key, maxWaitMillis);
+            fail("borrowObject must fail due to timeout by maxWaitMillis");
+        } catch (NoSuchElementException e) {
+            e.printStackTrace();
+        }
+
+        Assert.assertTrue(thread1.isAlive());
+    }
+
+    private BaseKeyedPooledObjectFactory<String, String> createSlowObjectFactory(final long elapsedTimeMillis) {
+        return new BaseKeyedPooledObjectFactory<String, String>() {
+            @Override
+            public String create(final String key) throws Exception {
+                Thread.sleep(elapsedTimeMillis);
+                return "created";
+            }
+
+            @Override
+            public PooledObject<String> wrap(final String value) {
+                // fake
+                return new DefaultPooledObject<>(value);
+            }
+        };
+    }
 }
 
 
